@@ -60,6 +60,18 @@
   (directory-files-recursively (project-root (project-current)) "\\.go$"))
 
 
+(defun gi--get-go-packages ()
+  "Get a list with all Go packages in the project.
+
+Calls the `go list ./...` command in the project root and returns the
+output as a list of strings."
+  (if-let* ((project (project-current))
+            (root (project-root project))
+            (default-directory root))
+      (let ((output (shell-command-to-string "go list ./...")))
+        (split-string output "\n" t))))
+
+
 (defun gi--get-go-packages-with-tests ()
   "Get a list with all Go packages in the project that have tests.
 
@@ -120,6 +132,90 @@ The working directory is set to the project root."
             (default-directory root)
             (compilation-always-kill t))
       (compile "go test ./...")))
+
+
+;;;###autoload (autoload 'go-integration-md-tidy "go-integration" nil t)
+(defun gi-mod-tidy ()
+  "Run the command `go mod tidy` in the project root."
+  (interactive)
+  (if-let* ((root (project-root (project-current)))
+            (default-directory root)
+            (compilation-always-kill t))
+      (compile "go mod tidy")))
+
+
+;;;###autoload (autoload 'go-integration-import-project-package "go-integration" nil t)
+(defun gi-import-project-package ()
+  "Insert a package from the current project into the import block."
+  (interactive)
+  (let* ((packages (or (gi--get-go-packages)
+                       (user-error "No Go packages found in current project")))
+         (package (completing-read "Import Go package: " packages nil t)))
+    (unless (or (gi--insert-into-import-block package)
+                (gi--expand-single-import package)
+                (gi--create-import-block package))
+      (user-error "Failed to insert import for %s" package))))
+
+
+(defun gi--insert-into-import-block (package)
+  "Insert PACKAGE into an existing multi-line import block.
+
+Returns non-nil if the package was inserted or already present."
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward "^import\\s-*(" nil t)
+      (let* ((open-pos (match-end 0))
+             (paren-pos (1- open-pos))
+             (block-end (save-excursion
+                          (goto-char paren-pos)
+                          (condition-case nil
+                              (progn (forward-sexp) (point))
+                            (error nil)))))
+        (when block-end
+          (let ((pattern (concat "^\\s-*\"" (regexp-quote package) "\"")))
+            (if (save-excursion
+                  (goto-char open-pos)
+                  (re-search-forward pattern block-end t))
+                (progn
+                  (message "Package %s already imported" package)
+                  t)
+              (goto-char block-end)
+              (backward-char)
+              (beginning-of-line)
+              (insert (format "	\"%s\"\n" package))
+              t)))))))
+
+
+(defun gi--expand-single-import (package)
+  "Expand a single-line import into a block and include PACKAGE.
+
+Returns non-nil if the conversion happened or PACKAGE already existed."
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward "^import\\s-+\"\\([^\"]+\\)\"" nil t)
+      (let ((existing (match-string 1)))
+        (if (string= existing package)
+            (message "Package %s already imported" package)
+          (replace-match
+           (format "import (\n  \"%s\"\n  \"%s\"\n)" existing package)
+           t t)))
+      t)))
+
+
+(defun gi--create-import-block (package)
+  "Create a new multi-line import block that imports PACKAGE.
+
+Returns non-nil when the block gets inserted."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((block (format "import (\n	\"%s\"\n)" package)))
+      (if (re-search-forward "^package\\s-+\\S+" nil t)
+          (progn
+            (end-of-line)
+            (insert "\n\n" block)
+            t)
+        (insert block)
+        t))))
 
 
 (defun gi--get-module-name ()
