@@ -134,7 +134,7 @@ The working directory is set to the project root."
       (compile "go test ./...")))
 
 
-;;;###autoload (autoload 'go-integration-md-tidy "go-integration" nil t)
+;;;###autoload (autoload 'go-integration-mod-tidy "go-integration" nil t)
 (defun gi-mod-tidy ()
   "Run the command `go mod tidy` in the project root."
   (interactive)
