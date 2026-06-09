@@ -131,7 +131,11 @@ The working directory is set to the project root."
   (if-let* ((root (project-root (project-current)))
             (default-directory root)
             (compilation-always-kill t))
-      (compile "go test ./...")))
+      (if current-prefix-arg
+          (compile "go test --cover ./...")
+        (compile "go test ./...")
+        )
+    ))
 
 
 ;;;###autoload (autoload 'go-integration-mod-tidy "go-integration" nil t)
