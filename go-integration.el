@@ -33,6 +33,59 @@
 (defvar dape-configs)
 
 
+(defgroup go-integration nil
+  "Integration helpers for Go projects."
+  :group 'tools)
+
+
+(defcustom gi-run-all-tests-command 'built-in
+  "Runner preset or custom command for `gi-run-all-tests' without coverage.
+
+Choose `built-in' for `go test ./...', `gotestsum' for
+`gotestsum -- ./...', `gotestdox' for `gotestdox ./...', or provide a
+custom command string."
+  :type '(choice
+          (const :tag "Built-in" built-in)
+          (const :tag "gotestsum" gotestsum)
+          (const :tag "gotestdox" gotestdox)
+          (string :tag "Custom command"))
+  :group 'go-integration)
+
+
+(defcustom gi-run-all-tests-coverage-command 'built-in
+  "Runner preset or custom command for `gi-run-all-tests' with coverage.
+
+Choose `built-in' for `go test --cover ./...', `gotestsum' for
+`gotestsum -- -coverprofile=cover.out ./...', or provide a custom
+command string."
+  :type '(choice
+          (const :tag "Built-in" built-in)
+          (const :tag "gotestsum" gotestsum)
+          (string :tag "Custom command"))
+  :group 'go-integration)
+
+
+(defun gi--resolve-run-all-tests-command ()
+  "Resolve the command used by `gi-run-all-tests' without coverage."
+  (pcase gi-run-all-tests-command
+    ('built-in "go test ./...")
+    ('gotestsum "gotestsum -- ./...")
+    ('gotestdox "gotestdox ./...")
+    ((pred stringp) gi-run-all-tests-command)
+    (_ (user-error "Invalid `gi-run-all-tests-command' value: %S"
+                   gi-run-all-tests-command))))
+
+
+(defun gi--resolve-run-all-tests-coverage-command ()
+  "Resolve the command used by `gi-run-all-tests' with coverage."
+  (pcase gi-run-all-tests-coverage-command
+    ('built-in "go test --cover ./...")
+    ('gotestsum "gotestsum -- -coverprofile=cover.out ./...")
+    ((pred stringp) gi-run-all-tests-coverage-command)
+    (_ (user-error "Invalid `gi-run-all-tests-coverage-command' value: %S"
+                   gi-run-all-tests-coverage-command))))
+
+
 ;; TODO Allow choosing and passing "-tags some tags" to the compile command.
 
 
@@ -126,16 +179,17 @@ The working directory is set to the project root."
 
 ;;;###autoload (autoload 'go-integration-run-all-tests "go-integration" nil t)
 (defun gi-run-all-tests ()
-  "Run the command `go test ./...` in the project root."
+  "Run all tests in the project root.
+
+Without a prefix argument, this uses `gi-run-all-tests-command'.
+With a prefix argument, this uses `gi-run-all-tests-coverage-command'."
   (interactive)
   (if-let* ((root (project-root (project-current)))
             (default-directory root)
             (compilation-always-kill t))
       (if current-prefix-arg
-          (compile "go test --cover ./...")
-        (compile "go test ./...")
-        )
-    ))
+          (compile (gi--resolve-run-all-tests-coverage-command))
+        (compile (gi--resolve-run-all-tests-command)))))
 
 
 ;;;###autoload (autoload 'go-integration-mod-tidy "go-integration" nil t)
