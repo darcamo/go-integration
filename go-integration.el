@@ -65,25 +65,35 @@ command string."
   :group 'go-integration)
 
 
-(defun gi--resolve-run-all-tests-command ()
-  "Resolve the command used by `gi-run-all-tests' without coverage."
-  (pcase gi-run-all-tests-command
-    ('built-in "go test ./...")
-    ('gotestsum "gotestsum -- ./...")
-    ('gotestdox "gotestdox ./...")
-    ((pred stringp) gi-run-all-tests-command)
-    (_ (user-error "Invalid `gi-run-all-tests-command' value: %S"
-                   gi-run-all-tests-command))))
+(defun gi--resolve-run-all-tests-command (&optional package)
+  "Resolve the command used to run the tests without coverage.
+
+If PACKAGE is provided, only that package will be tested. Otherwise, all
+packages will be tested."
+  (let ((package (or package "./...")))
+    (pcase gi-run-all-tests-command
+      ('built-in (concat "go test " package))
+      ('gotestsum (concat "gotestsum -- " package))
+      ('gotestdox (concat "gotestdox " package))
+      ((pred stringp) gi-run-all-tests-command)
+      (_
+       (user-error "Invalid `gi-run-all-tests-command' value: %S"
+                   gi-run-all-tests-command)))))
 
 
-(defun gi--resolve-run-all-tests-coverage-command ()
-  "Resolve the command used by `gi-run-all-tests' with coverage."
-  (pcase gi-run-all-tests-coverage-command
-    ('built-in "go test --cover ./...")
-    ('gotestsum "gotestsum -- -coverprofile=cover.out ./...")
-    ((pred stringp) gi-run-all-tests-coverage-command)
-    (_ (user-error "Invalid `gi-run-all-tests-coverage-command' value: %S"
-                   gi-run-all-tests-coverage-command))))
+(defun gi--resolve-run-all-tests-coverage-command (&optional package)
+  "Resolve the command used to run the tests with coverage.
+
+If PACKAGE is provided, only that package will be tested. Otherwise, all
+packages will be tested."
+  (let ((package (or package "./...")))
+    (pcase gi-run-all-tests-coverage-command
+      ('built-in (concat "go test --cover " package))
+      ('gotestsum (concat "gotestsum -- -coverprofile=cover.out " package))
+      ((pred stringp) gi-run-all-tests-coverage-command)
+      (_
+       (user-error "Invalid `gi-run-all-tests-coverage-command' value: %S"
+                   gi-run-all-tests-coverage-command)))))
 
 
 ;; TODO Allow choosing and passing "-tags some tags" to the compile command.
@@ -93,7 +103,7 @@ command string."
 (defvar gi--main-file nil
   "Current main Go file to run.")
 (defvar gi--package-to-test nil
-  "Current package that should be debuged.")
+  "Current package that should be debugged.")
 
 
 (defun gi--get-project-root-folder ()
@@ -130,19 +140,14 @@ output as a list of strings."
 
 Calls the `go list -test ./...` command in the project root and returns
 the output as a list of strings only including packages that have tests."
-  (let* ((default-directory (project-root (project-current)))
-         (output (shell-command-to-string "go list -test ./..."))
-         (lines (split-string output "\n" t))
-         (packages-with-tests
-          (seq-filter (lambda (line) (string-suffix-p "]" line)) lines)))
+  (let*
+      ((default-directory (project-root (project-current)))
+       (output
+        (shell-command-to-string
+         "go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./..."))
+       (lines (split-string output "\n" t)))
+    lines))
 
-    (mapcar
-     ;; NOTE: This lambda is fragile and that the paths do not have spaces in
-     ;; them
-     (lambda (line) (car (split-string line " "))) packages-with-tests)))
-
-;; TODO Use gi--get-go-packages-with-tests and add a function to launch dape
-;; with the chosen package
 
 ;;;###autoload (autoload 'go-integration-choose-go-file "go-integration" nil t)
 (defun gi-choose-go-file ()
@@ -167,6 +172,8 @@ the output as a list of strings only including packages that have tests."
 (defun gi-run-current-file ()
   "Run the current Go file.
 
+Call `go-integration-choose-go-file' to selec the current file to run.
+
 The working directory is set to the project root."
   (interactive)
   (if-let* ((root (project-root (project-current)))
@@ -176,6 +183,24 @@ The working directory is set to the project root."
       (compile (format "go run %s" (tramp-file-local-name file)))
     (compile (format "go run %s" root))))
 
+
+(defun gi-run-current-test ()
+  "Run the current test.
+
+Call `go-integration-choose-go-package-with-tests' to select the current
+package to run. If you want to run all tests, call
+`go-integration-run-all-tests' instead."
+  (interactive)
+  (if-let* ((root (project-root (project-current)))
+            (default-directory root)
+            (compilation-always-kill t)
+            (package gi--package-to-test))
+      (if current-prefix-arg
+          (compile (gi--resolve-run-all-tests-coverage-command package))
+          (compile (gi--resolve-run-all-tests-command package))
+          )
+    (user-error
+     "No package selected. Call `go-integration-choose-go-package-with-tests' first.")))
 
 ;;;###autoload (autoload 'go-integration-run-all-tests "go-integration" nil t)
 (defun gi-run-all-tests ()
@@ -307,7 +332,7 @@ relative to the project root, and then remove the file name."
         package)))
 
 
-;; Note: This function is specially useful to be passed to dape as the :program
+;; Note: This function is especially useful to be passed to dape as the :program
 ;; argument, since it will return the main file
 ;;;###autoload (autoload 'go-integration-get-main-file-relative-to-project "go-integration" nil t)
 (defun gi-get-main-file-relative-to-project ()
